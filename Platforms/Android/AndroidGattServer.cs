@@ -3,13 +3,15 @@ using Android.Content;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
 using Java.Util;
+using Microsoft.Extensions.Logging;
 
 namespace GattServerLib;
 
-public class AndroidBleGattServer : IGattServer
+public class AndroidGattServer : IGattServer
 {
-    private BluetoothManager _bluetoothManager;
-    private BluetoothGattServer _gattServer;
+    private BluetoothManager? bluetoothManager;
+    private BluetoothGattServer? gattServer;
+    private ILogger logger;
     
     private GattServerCallback gattServerCallback;
     
@@ -19,37 +21,60 @@ public class AndroidBleGattServer : IGattServer
     private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
     
-    public Task InitializeAsync()
+    public Task InitializeAsync(ILogger logger)
     {
-        _bluetoothManager = (BluetoothManager)Application.Context.GetSystemService(Context.BluetoothService);
-
-        gattServerCallback = new GattServerCallback();
+        bluetoothManager = (BluetoothManager?)Android.App.Application.Context.GetSystemService(Context.BluetoothService);
+        gattServerCallback = new GattServerCallback(logger);
+        this.logger = logger;
         
+        logger.LogDebug("InitializeAsync Android");
+        return Task.CompletedTask;
     }
 
     public Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null)
     {
-        _gattServer = _bluetoothManager.OpenGattServer(Application.Context, new GattServerCallback());
+        gattServer = bluetoothManager?.OpenGattServer(Android.App.Application.Context, gattServerCallback);
+        logger.LogDebug("StartAdvertisingAsync Android");
+        return Task.FromResult(gattServer is not null);
     }
 
     public Task StopAdvertisingAsync()
     {
-        _gattServer?.Close();
+        foreach (var bluetoothGattService in gattServer.Services)
+        {
+           bluetoothGattService.Dispose();
+        }
+        gattServer.Services.Clear();
+        gattServer.ClearServices();
+        gattServer.Dispose();
+        return Task.CompletedTask;
     }
-
-    public Task AddServiceAsync(IBleService service)
+    
+    public Task<bool> AddServiceAsync(UUID uuid)
     {       
-        BluetoothGattService androidService = new BluetoothGattService(UUID.FromString(service.ServiceUuid.ToString()), GattServiceType.Primary);
+        BluetoothGattService androidService = new BluetoothGattService(uuid, GattServiceType.Primary);
         // Add characteristics to the service.
-        _gattServer.AddService(androidService);
+        if (gattServer is null || !gattServer.AddService(androidService))
+        {
+            return Task.FromResult(false);
+        }
+        
+        return Task.FromResult(true);
     }
 
-    public Task RemoveServiceAsync(IBleService service)
+    public Task<bool> RemoveServiceAsync(UUID uuid)
     {
-    }
+        var serviceToRemove = gattServer.Services?.FirstOrDefault(x => x.Uuid == uuid);
+        if (serviceToRemove == null)
+        {
+            return Task.FromResult(false);
+        }
 
-    public event EventHandler<BleDeviceConnectionEventArgs>? DeviceConnected;
-    public event EventHandler<BleDeviceConnectionEventArgs>? DeviceDisconnected;
-    public event EventHandler<BleCharacteristicWriteRequest>? OnWriteRequest;
-    public event EventHandler<BleCharacteristicReadRequest>? OnReadRequest;
+        if (!gattServer.RemoveService(serviceToRemove))
+        {
+            return Task.FromResult(false);
+        }
+        
+        return Task.FromResult(true);
+    }
 }

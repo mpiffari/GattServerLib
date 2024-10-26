@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>GattServer</id>
+    <version>1.0.1</version>
+    <authors>YourName</authors>
+    <description>A .NET MAUI client library for GATT Server BLE</description>
+    <dependencies>
+      <dependency id="Microsoft.Maui" version="7.0.0" />
+    </dependencies>
+  </metadata>
+</package>

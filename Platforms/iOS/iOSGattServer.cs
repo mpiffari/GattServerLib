@@ -1,6 +1,8 @@
 using CoreBluetooth;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
+using Java.Util;
+using Microsoft.Extensions.Logging;
 
 namespace GattServerLib;
 
@@ -15,11 +17,11 @@ public class iOSGattServer : IGattServer
     private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
     
-    public Task InitializeAsync()
+    public Task InitializeAsync(ILogger logger)
     {
         peripheralManager = new CBPeripheralManager();
         
-        peripheralManagerDelegate = new iOSPeripheralManagerDelegate();
+        peripheralManagerDelegate = new iOSPeripheralManagerDelegate(logger);
         peripheralManagerDelegate.OnAdvertisingStarted += error => { }; 
         peripheralManagerDelegate.OnServiceAdded += (service, error) => 
         peripheralManagerDelegate.OnStateUpdated += (sender, s) => { };
@@ -33,7 +35,7 @@ public class iOSGattServer : IGattServer
     {
         if (peripheralManager.Advertising)
         {
-            return Task.FromResult(false);e
+            return Task.FromResult(false);
         }
         
         options ??= new BleAdvOptions();
@@ -50,27 +52,25 @@ public class iOSGattServer : IGattServer
         }
         
         peripheralManager.StartAdvertising(opts);
+        return Task.FromResult<bool>(true);
     }
 
     public Task StopAdvertisingAsync()
     {
         peripheralManager.StopAdvertising();
+        return Task.FromResult<bool>(true);
     }
 
-    public Task AddServiceAsync(IBleService service)
+    public Task<bool> AddServiceAsync(UUID uuid)
     {
-        var iosService = new CBMutableService(CBUUID.FromString(service.ServiceUuid.ToString()), true);
+        var iosService = new CBMutableService(CBUUID.FromString(uuid.ToString()), true);
         // Add characteristics to the service.
         peripheralManager.AddService(iosService);
+        return Task.FromResult<bool>(true);
     }
 
-    public Task RemoveServiceAsync(IBleService service)
+    public Task<bool> RemoveServiceAsync(UUID uuid)
     {
-        throw new NotImplementedException();
+        return Task.FromResult<bool>(true);
     }
-
-    public event EventHandler<BleDeviceConnectionEventArgs>? DeviceConnected;
-    public event EventHandler<BleDeviceConnectionEventArgs>? DeviceDisconnected;
-    public event EventHandler<BleCharacteristicWriteRequest>? OnWriteRequest;
-    public event EventHandler<BleCharacteristicReadRequest>? OnReadRequest;
 }

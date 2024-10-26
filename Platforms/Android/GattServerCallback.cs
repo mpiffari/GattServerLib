@@ -1,11 +1,12 @@
 using Android.Bluetooth;
 using Android.Bluetooth.LE;
 using Android.Runtime;
+using GattServerLib.Support;
 using Microsoft.Extensions.Logging;
 
 namespace GattServerLib;
 
-public class GattServerCallback : BluetoothGattServerCallback
+internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
 {
     #region PeripheralManagerDelegate
     
@@ -24,17 +25,14 @@ public class GattServerCallback : BluetoothGattServerCallback
     public event OnServiceAddedDelegate? OnServiceAddedEvent;
     
     #endregion
-    
-    // TODO: use internal DI
-    private static readonly ILogger logger = new Logger();
-    
-    public override void OnCharacteristicReadRequest(BluetoothDevice device, int requestId, int offset, BluetoothGattCharacteristic characteristic)
+
+    public override void OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic? characteristic)
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnCharacteristicReadRequest");
         OnCharacteristicReadRequestEvent?.Invoke(requestId, offset, characteristic);
     }
 
-    public override void OnCharacteristicWriteRequest(BluetoothDevice device, int requestId, BluetoothGattCharacteristic characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value)
+    public override void OnCharacteristicWriteRequest(BluetoothDevice? device, int requestId, BluetoothGattCharacteristic? characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value)
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnCharacteristicWriteRequest");
         OnCharacteristicWriteRequestEvent?.Invoke(requestId, characteristic, preparedWrite, responseNeeded, offset, value);

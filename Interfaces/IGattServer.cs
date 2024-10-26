@@ -1,19 +1,14 @@
 using GattServerLib.GattOptions;
+using Java.Util;
+using Microsoft.Extensions.Logging;
 
 namespace GattServerLib.Interfaces;
 
 public interface IGattServer
 {
-    Task InitializeAsync();
+    Task InitializeAsync(ILogger logger);
     Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null);
     Task StopAdvertisingAsync();
-    Task AddServiceAsync(IBleService service);
-    Task RemoveServiceAsync(IBleService service);
-    
-    /*
-    event EventHandler<BleDeviceConnectionEventArgs> DeviceConnected;
-    event EventHandler<BleDeviceConnectionEventArgs> DeviceDisconnected;
-    event EventHandler<BleCharacteristicWriteRequest> OnWriteRequest;
-    event EventHandler<BleCharacteristicReadRequest> OnReadRequest;
-    */
+    Task<bool> AddServiceAsync(UUID uuid);
+    Task<bool> RemoveServiceAsync(UUID uuid);
 }

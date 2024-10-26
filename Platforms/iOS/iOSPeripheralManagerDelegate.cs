@@ -1,10 +1,11 @@
 using CoreBluetooth;
 using Foundation;
+using GattServerLib.Support;
 using Microsoft.Extensions.Logging;
 
 namespace GattServerLib;
 
-public class iOSPeripheralManagerDelegate : CBPeripheralManagerDelegate
+internal class iOSPeripheralManagerDelegate(ILogger logger) : CBPeripheralManagerDelegate
 {
     #region PeripheralManagerDelegate
     
@@ -24,9 +25,6 @@ public class iOSPeripheralManagerDelegate : CBPeripheralManagerDelegate
     public event OnReadRequestReceivedDelegate? OnReadRequestReceived;
     
     #endregion
-    
-    // TODO: use internal DI
-    private static readonly ILogger logger = new Logger();
     
     public override void AdvertisingStarted(CBPeripheralManager peripheral, NSError? error)
     {
