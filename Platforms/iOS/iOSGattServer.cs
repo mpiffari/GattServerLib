@@ -1,6 +1,7 @@
 using CoreBluetooth;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
+using GattServerLib.Support;
 using Java.Util;
 using Microsoft.Extensions.Logging;
 
@@ -16,6 +17,47 @@ public class iOSGattServer : IGattServer
     private TaskCompletionSource<bool> OnStateUpdatedTcs = new();
     private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
+    
+    public BleAccessState AdvertisingAccessStatus => CBPeripheralManager.Authorization switch
+    {
+        CBManagerAuthorization.NotDetermined => BleAccessState.Unknown,
+        CBManagerAuthorization.Denied => BleAccessState.Denied,
+        //CBManagerAuthorization.Restricted => ToStatus(this.Manager.State),
+        CBManagerAuthorization.AllowedAlways => ToStatus(peripheralManager.State)
+    };
+    
+    // only one state on iOS/Mac
+    public BleAccessState GattAccessStatus => this.AdvertisingAccessStatus;
+    
+    public async Task<BleAccessState> RequestAccess(bool advertise = true, bool connect = true)
+    {
+        var status = ToStatus(peripheralManager.State);
+        if (status == BleAccessState.Unknown)
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            var handler = new EventHandler((sender, args) =>
+            {
+                status = ToStatus(peripheralManager.State);
+                if (status != BleAccessState.Unknown)
+                    tcs.TrySetResult(true);
+            });
+            // this should not hang...
+            peripheralManager.StateUpdated += handler;
+            await tcs.Task.ConfigureAwait(false);
+            peripheralManager.StateUpdated -= handler;
+        }
+        return status;
+    }
+    
+    private static BleAccessState ToStatus(CBManagerState state) => state switch
+    {
+        CBManagerState.PoweredOff => BleAccessState.Disabled,
+        CBManagerState.Unauthorized => BleAccessState.Denied,
+        CBManagerState.Unsupported => BleAccessState.NotSupported,
+        CBManagerState.PoweredOn => BleAccessState.Available,
+        //  CBPeripheralManagerState.Resetting, Unknown
+        _ => BleAccessState.Unknown
+    };
     
     public Task InitializeAsync(ILogger logger)
     {

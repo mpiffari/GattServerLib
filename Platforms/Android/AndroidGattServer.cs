@@ -2,12 +2,21 @@ using Android.Bluetooth;
 using Android.Content;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
+using GattServerLib.Support;
 using Java.Util;
 using Microsoft.Extensions.Logging;
+using Microsoft.Maui.ApplicationModel;
+using static Android.Manifest;
 
 namespace GattServerLib;
 
-public class AndroidGattServer : IGattServer
+public interface IOnActivityRequestPermissionsResult
+{
+    void Handle(Activity activity, int requestCode, string[] permissions, Permission[] grantResults);
+}
+
+public class AndroidGattServer : IGattServer, IAndroidLifecycle.IOnActivityRequestPermissionsResult,
+    IAndroidLifecycle.IOnActivityResult
 {
     private BluetoothManager? bluetoothManager;
     private BluetoothGattServer? gattServer;
@@ -20,6 +29,87 @@ public class AndroidGattServer : IGattServer
     private TaskCompletionSource<bool> OnStateUpdatedTcs = new();
     private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
+    
+    public BleAccessState AdvertisingAccessStatus
+    {
+        get
+        {
+            if (!OperatingSystem.IsAndroidVersionAtLeast(23))
+                return BleAccessState.NotSupported;
+
+            var status = BleAccessState.Available;
+            if (OperatingSystem.IsAndroidVersionAtLeast(31))
+                status = this.context.Platform.GetCurrentPermissionStatus(Permission.BluetoothAdvertise);
+
+            if (status == BleAccessState.Available)
+                status = this.context.Manager.GetAccessState();
+
+            return status;
+        }
+    }
+    
+    public BleAccessState GattAccessStatus
+    {
+        get
+        {
+            if (!OperatingSystem.IsAndroidVersionAtLeast(23))
+                return BleAccessState.NotSupported;
+
+            var status = BleAccessState.Available;
+            if (OperatingSystem.IsAndroidVersionAtLeast(31))
+                status = GetCurrentPermissionStatus(Permission.BluetoothConnect);
+
+            if (status == BleAccessState.Available)
+                status = bluetoothManager.GetAccessState();
+
+            return status;
+        }
+    }
+
+    private BleAccessState GetCurrentPermissionStatus(string androidPermission)
+    {
+        var self = ContextCompat.CheckSelfPermission(this.AppContext, androidPermission);
+        if (self == Permission.Granted)
+            return BleAccessState.Available;
+
+        if (!this.HasRequestedPermission(androidPermission))
+            return BleAccessState.Unknown;
+
+        //var showRequest = ActivityCompat.ShouldShowRequestPermissionRationale(this.CurrentActivity!, androidPermission);
+        //if (showRequest)
+        //    return AccessState.Unknown;
+
+        return BleAccessState.Denied;
+    }
+    
+    public async Task<BleAccessState> RequestAccess(bool advertise = true, bool connect = true)
+    {
+        if (!advertise && !connect)
+            throw new ArgumentException("You must request at least 1 permission");
+
+        if (!OperatingSystem.IsAndroidVersionAtLeast(23))
+            return BleAccessState.NotSupported; //throw new InvalidOperationException("BLE Advertiser needs API Level 23+");
+
+        var current = this.context.Manager.GetAccessState();
+        if (current != BleAccessState.Available && current != BleAccessState.Unknown)
+            return current;
+
+        if (OperatingSystem.IsAndroidVersionAtLeast(31))
+        {
+            var perms = new List<string>();
+            if (advertise)
+                perms.Add(Permission.BluetoothAdvertise);
+
+            if (connect)
+                perms.Add(Permission.BluetoothConnect);
+            
+            
+            var result = await Platform.RequestPermissions(perms.ToArray());
+            if (!result.IsSuccess())
+                return BleAccessState.Denied;
+        }
+        return BleAccessState.Available;
+    }
     
     public Task InitializeAsync(ILogger logger)
     {
