@@ -33,7 +33,7 @@ public class iOSGattServer : IGattServer
     {
         if (peripheralManager.Advertising)
         {
-            return Task.FromResult(false);
+            return Task.FromResult(false);e
         }
         
         options ??= new BleAdvOptions();
