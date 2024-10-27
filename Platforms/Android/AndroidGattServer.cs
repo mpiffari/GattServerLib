@@ -76,6 +76,12 @@ public class AndroidGattServer : IGattServer
         }
         
         var bluetoothAdapter = bluetoothManager?.Adapter;
+        // Set the Bluetooth adapter's device name
+        if (options.LocalName is not null)
+        {
+            bluetoothAdapter.SetName(options.LocalName);  // This sets the device name globally
+        }
+        
         var advertiser = bluetoothAdapter?.BluetoothLeAdvertiser;
 
         if (advertiser == null || !bluetoothAdapter.IsEnabled)
@@ -87,6 +93,7 @@ public class AndroidGattServer : IGattServer
         var settings = new AdvertiseSettings.Builder()
             .SetAdvertiseMode(AdvertiseMode.LowLatency)
             .SetTxPowerLevel(AdvertiseTx.PowerHigh)
+            .SetDiscoverable(true)
             .SetConnectable(true)
             .Build();
 
@@ -118,10 +125,10 @@ public class AndroidGattServer : IGattServer
 
     public async Task<bool> AddServiceAsync(IBleService bleService)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "AddServiceAsync Android");
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "AddServiceAsync Android - service {S}", bleService.ServiceUuid.ToString());
         BluetoothGattService androidService = new BluetoothGattService(UUID.FromString(bleService.ServiceUuid.ToString()), GattServiceType.Primary);
+        
         // Add characteristics to the service
-
         foreach (var charact in bleService.Characteristics)
         {
             var properties = charact.Properties;
@@ -139,14 +146,25 @@ public class AndroidGattServer : IGattServer
                 continue;
             }
             
+            logger.LogDebug(LoggerScope.GATT_S.EventId(),
+                "Add characteristic with UUID {U} to service {S}",
+                charact.CharacteristicUuid.ToString(),
+                bleService.ServiceUuid.ToString());
             androidService.Characteristics.Add(characteristic);
         }
         
-        if (gattServer is null || !gattServer.AddService(androidService))
+        if (gattServer is null)
         {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "Error on AddService - Android gattServer null");
             return false;
         }
-
+        
+        if (!gattServer.AddService(androidService))
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "Error on AddService - Android");
+            return false;
+        }
+        
         var result = await OnServiceAddedTcs.Task;
         return result;
     }

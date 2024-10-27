@@ -8,8 +8,9 @@ public class BleCharacteristic : IBleCharacteristic
     public Guid CharacteristicUuid { get; }
     public BleCharacteristicProperties Properties { get; }
     
-    public BleCharacteristic(string charateristicName, BleCharacteristicProperties properties)
+    public BleCharacteristic(string charateristicName, Guid uuid, BleCharacteristicProperties properties)
     {
+        CharacteristicUuid = uuid;
         CharateristicName = charateristicName;
         Properties = properties;
     }
