@@ -1,5 +1,4 @@
 using GattServerLib.GattOptions;
-using Java.Util;
 using Microsoft.Extensions.Logging;
 
 namespace GattServerLib.Interfaces;

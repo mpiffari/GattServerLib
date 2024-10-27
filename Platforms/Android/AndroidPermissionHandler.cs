@@ -21,6 +21,7 @@ public class AndroidPermissionHandler : IPermissionHandler
         }
 
         Intent enableBtIntent = new Intent(BluetoothAdapter.ActionRequestEnable);
+        enableBtIntent.SetFlags(ActivityFlags.NewTask);
         Android.App.Application.Context.StartActivity(enableBtIntent);
         return Task.CompletedTask;
     }

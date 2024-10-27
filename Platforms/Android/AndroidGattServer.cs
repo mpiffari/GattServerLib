@@ -1,5 +1,7 @@
 using Android.Bluetooth;
+using Android.Bluetooth.LE;
 using Android.Content;
+using Android.OS;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
 using GattServerLib.Support;
@@ -15,32 +17,94 @@ public class AndroidGattServer : IGattServer
     private ILogger logger;
 
     private GattServerCallback gattServerCallback;
+    private GattAdvertiseCallback gattAdvertiseCallback;
 
     private TaskCompletionSource<bool> OnAdvertisingStartedTcs = new();
     private TaskCompletionSource<bool> OnServiceAddedTcs = new();
-    private TaskCompletionSource<bool> OnStateUpdatedTcs = new();
-    private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
-    private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
 
     public Task InitializeAsync(ILogger logger)
     {
+        this.logger = logger;
+        
         bluetoothManager = (BluetoothManager?)Android.App.Application.Context.GetSystemService(Context.BluetoothService);
         gattServerCallback = new GattServerCallback(logger);
-        this.logger = logger;
-
-        logger.LogDebug("InitializeAsync Android");
+        gattAdvertiseCallback = new GattAdvertiseCallback(logger);
+        
+        gattAdvertiseCallback.OnStartSuccessEvent += OnAdvertisingStartedSuccess;
+        gattAdvertiseCallback.OnStartFailureEvent += OnAdvertisingStartedFailure;
+        gattServerCallback.OnServiceAddedEvent += OnServiceAdded;
+        
+        logger.LogDebug("InitializeAsync Android - completed");
         return Task.CompletedTask;
     }
 
-    public Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null)
+    private void OnServiceAdded(GattStatus status, BluetoothGattService? service)
     {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnServiceAdded Android (service {U}) - status {S}", service.Uuid, status.ToString());
+        if (status != GattStatus.Success)
+        {
+            OnServiceAddedTcs.SetResult(false);
+        }
+        else
+        {
+            OnServiceAddedTcs.SetResult(true);
+        }
+    }
+
+    private void OnAdvertisingStartedSuccess(AdvertiseSettings settingsineffect)
+    {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - settingsineffect {S}", settingsineffect.ToString());
+        OnAdvertisingStartedTcs.SetResult(true);
+    }
+
+    private void OnAdvertisingStartedFailure(AdvertiseFailure errorcode)
+    {            
+        logger.LogError(LoggerScope.GATT_S.EventId(), "OnAdvertisingStartedFailure - errorcode {E}", errorcode.ToString());
+        OnAdvertisingStartedTcs.SetResult(false);
+    }
+
+    public async Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null)
+    {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android");
+
+        OnAdvertisingStartedTcs = new();
         gattServer = bluetoothManager?.OpenGattServer(Android.App.Application.Context, gattServerCallback);
-        logger.LogDebug("StartAdvertisingAsync Android");
-        return Task.FromResult(gattServer is not null);
+        if (gattServer is null)
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - gattServer is null");
+            return false;
+        }
+        
+        var bluetoothAdapter = bluetoothManager?.Adapter;
+        var advertiser = bluetoothAdapter?.BluetoothLeAdvertiser;
+
+        if (advertiser == null || !bluetoothAdapter.IsEnabled)
+        {            
+            logger.LogError(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - bluetoothAdapter not enabled");
+            return false;
+        }
+        
+        var settings = new AdvertiseSettings.Builder()
+            .SetAdvertiseMode(AdvertiseMode.LowLatency)
+            .SetTxPowerLevel(AdvertiseTx.PowerHigh)
+            .SetConnectable(true)
+            .Build();
+
+        var data = new AdvertiseData.Builder()
+            .SetIncludeDeviceName(true)
+            .AddServiceUuid(ParcelUuid.FromString(options.ServiceUuids.FirstOrDefault() ?? "0000180A-0000-1000-8000-00805f9b34fb")) // Device Information Service UUID
+            .Build();
+        
+        advertiser.StartAdvertising(settings, data, gattAdvertiseCallback);
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - awaiting advertising completion source");
+        var result = await OnAdvertisingStartedTcs.Task;
+        return result;
     }
 
     public Task StopAdvertisingAsync()
     {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StopAdvertisingAsync Android");
+        
         foreach (var bluetoothGattService in gattServer.Services)
         {
             bluetoothGattService.Dispose();
@@ -52,8 +116,9 @@ public class AndroidGattServer : IGattServer
         return Task.CompletedTask;
     }
 
-    public Task<bool> AddServiceAsync(IBleService bleService)
+    public async Task<bool> AddServiceAsync(IBleService bleService)
     {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "AddServiceAsync Android");
         BluetoothGattService androidService = new BluetoothGattService(UUID.FromString(bleService.ServiceUuid.ToString()), GattServiceType.Primary);
         // Add characteristics to the service
 
@@ -79,10 +144,11 @@ public class AndroidGattServer : IGattServer
         
         if (gattServer is null || !gattServer.AddService(androidService))
         {
-            return Task.FromResult(false);
+            return false;
         }
 
-        return Task.FromResult(true);
+        var result = await OnServiceAddedTcs.Task;
+        return result;
     }
 
     private GattProperty ToGattProperty(BleCharacteristicProperties properties)

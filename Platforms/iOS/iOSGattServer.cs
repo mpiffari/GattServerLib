@@ -1,9 +1,8 @@
 using CoreBluetooth;
-using Foundation;
+using CoreFoundation;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
 using GattServerLib.Support;
-using Java.Util;
 using Microsoft.Extensions.Logging;
 
 namespace GattServerLib;
@@ -12,6 +11,7 @@ public class iOSGattServer : IGattServer
 {
     private CBPeripheralManager peripheralManager;
     private iOSPeripheralManagerDelegate peripheralManagerDelegate;
+    private ILogger logger;
     
     private TaskCompletionSource<bool> OnAdvertisingStartedTcs = new();
     private TaskCompletionSource<bool> OnServiceAddedTcs = new();
@@ -21,29 +21,36 @@ public class iOSGattServer : IGattServer
     
     public Task InitializeAsync(ILogger logger)
     {
-        peripheralManager = new CBPeripheralManager();
+        this.logger = logger;
         
         peripheralManagerDelegate = new iOSPeripheralManagerDelegate(logger);
-        peripheralManagerDelegate.OnAdvertisingStarted += error => { }; 
-        peripheralManagerDelegate.OnServiceAdded += (service, error) => 
+        peripheralManagerDelegate.OnAdvertisingStarted += error => { };
+        peripheralManagerDelegate.OnServiceAdded += (service, error) => { };
         peripheralManagerDelegate.OnStateUpdated += (sender, s) => { };
         peripheralManagerDelegate.OnWriteRequestsReceived += requests => { }; 
-        peripheralManagerDelegate.OnReadRequestReceived += request => { }; 
+        peripheralManagerDelegate.OnReadRequestReceived += request => { };
+        
+        peripheralManager = new CBPeripheralManager(peripheralManagerDelegate, DispatchQueue.MainQueue);
         
         return Task.CompletedTask;
     }
 
-    public Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null)
+    public async Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null)
     {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync iOS");
+        
+        OnAdvertisingStartedTcs = new();
         if (peripheralManager.Advertising)
         {
-            return Task.FromResult(false);
+            return false;
         }
         
         options ??= new BleAdvOptions();
         var opts = new StartAdvertisingOptions();
         if (options.LocalName != null)
+        {
             opts.LocalName = options.LocalName;
+        }
 
         if (options.ServiceUuids.Length > 0)
         {
@@ -54,17 +61,21 @@ public class iOSGattServer : IGattServer
         }
         
         peripheralManager.StartAdvertising(opts);
-        return Task.FromResult<bool>(true);
+        var result = await OnAdvertisingStartedTcs.Task;
+        return result;
     }
 
     public Task StopAdvertisingAsync()
     {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StopAdvertisingAsync iOS");
         peripheralManager.StopAdvertising();
         return Task.FromResult<bool>(true);
     }
 
-    public Task<bool> AddServiceAsync(IBleService bleService)
+    public async Task<bool> AddServiceAsync(IBleService bleService)
     {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "AddServiceAsync iOS");
+        OnServiceAddedTcs = new();
         var iosService = new CBMutableService(CBUUID.FromString(bleService.ServiceUuid.ToString()), true);
         // Add characteristics to the service
         
@@ -79,7 +90,8 @@ public class iOSGattServer : IGattServer
         }
         
         peripheralManager.AddService(iosService);
-        return Task.FromResult<bool>(true);
+        var result = await OnServiceAddedTcs.Task;
+        return result;
     }
     
     private CBCharacteristicProperties ToGattProperty(BleCharacteristicProperties properties)

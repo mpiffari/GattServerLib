@@ -28,25 +28,25 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
 
     public override void OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic? characteristic)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnCharacteristicReadRequest");
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnCharacteristicReadRequest");
         OnCharacteristicReadRequestEvent?.Invoke(requestId, offset, characteristic);
     }
 
     public override void OnCharacteristicWriteRequest(BluetoothDevice? device, int requestId, BluetoothGattCharacteristic? characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnCharacteristicWriteRequest");
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnCharacteristicWriteRequest");
         OnCharacteristicWriteRequestEvent?.Invoke(requestId, characteristic, preparedWrite, responseNeeded, offset, value);
     }
     
     public override void OnExecuteWrite(BluetoothDevice? device, int requestId, bool execute)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnExecuteWrite");
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnExecuteWrite");
         OnCharacteristicWriteExecuteEvent?.Invoke(requestId, execute);
     }
     
     public override void OnServiceAdded([GeneratedEnum] GattStatus status, BluetoothGattService? service)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnServiceAdded");
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnServiceAdded");
         OnServiceAddedEvent?.Invoke(status, service);
     }
     
