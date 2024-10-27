@@ -16,7 +16,6 @@ public enum BleAccessState
     /// This implies you need to setup something in your:
     ///     Android: AndroidManifest.xml
     ///     iOS: Info.plist
-    ///     UWP: appx
     /// </summary>
     NotSetup,
 

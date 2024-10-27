@@ -5,118 +5,29 @@ using GattServerLib.Interfaces;
 using GattServerLib.Support;
 using Java.Util;
 using Microsoft.Extensions.Logging;
-using Microsoft.Maui.ApplicationModel;
-using static Android.Manifest;
 
 namespace GattServerLib;
 
-public interface IOnActivityRequestPermissionsResult
-{
-    void Handle(Activity activity, int requestCode, string[] permissions, Permission[] grantResults);
-}
-
-public class AndroidGattServer : IGattServer, IAndroidLifecycle.IOnActivityRequestPermissionsResult,
-    IAndroidLifecycle.IOnActivityResult
+public class AndroidGattServer : IGattServer
 {
     private BluetoothManager? bluetoothManager;
     private BluetoothGattServer? gattServer;
     private ILogger logger;
-    
+
     private GattServerCallback gattServerCallback;
-    
+
     private TaskCompletionSource<bool> OnAdvertisingStartedTcs = new();
     private TaskCompletionSource<bool> OnServiceAddedTcs = new();
     private TaskCompletionSource<bool> OnStateUpdatedTcs = new();
     private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
-    
-    public BleAccessState AdvertisingAccessStatus
-    {
-        get
-        {
-            if (!OperatingSystem.IsAndroidVersionAtLeast(23))
-                return BleAccessState.NotSupported;
 
-            var status = BleAccessState.Available;
-            if (OperatingSystem.IsAndroidVersionAtLeast(31))
-                status = this.context.Platform.GetCurrentPermissionStatus(Permission.BluetoothAdvertise);
-
-            if (status == BleAccessState.Available)
-                status = this.context.Manager.GetAccessState();
-
-            return status;
-        }
-    }
-    
-    public BleAccessState GattAccessStatus
-    {
-        get
-        {
-            if (!OperatingSystem.IsAndroidVersionAtLeast(23))
-                return BleAccessState.NotSupported;
-
-            var status = BleAccessState.Available;
-            if (OperatingSystem.IsAndroidVersionAtLeast(31))
-                status = GetCurrentPermissionStatus(Permission.BluetoothConnect);
-
-            if (status == BleAccessState.Available)
-                status = bluetoothManager.GetAccessState();
-
-            return status;
-        }
-    }
-
-    private BleAccessState GetCurrentPermissionStatus(string androidPermission)
-    {
-        var self = ContextCompat.CheckSelfPermission(this.AppContext, androidPermission);
-        if (self == Permission.Granted)
-            return BleAccessState.Available;
-
-        if (!this.HasRequestedPermission(androidPermission))
-            return BleAccessState.Unknown;
-
-        //var showRequest = ActivityCompat.ShouldShowRequestPermissionRationale(this.CurrentActivity!, androidPermission);
-        //if (showRequest)
-        //    return AccessState.Unknown;
-
-        return BleAccessState.Denied;
-    }
-    
-    public async Task<BleAccessState> RequestAccess(bool advertise = true, bool connect = true)
-    {
-        if (!advertise && !connect)
-            throw new ArgumentException("You must request at least 1 permission");
-
-        if (!OperatingSystem.IsAndroidVersionAtLeast(23))
-            return BleAccessState.NotSupported; //throw new InvalidOperationException("BLE Advertiser needs API Level 23+");
-
-        var current = this.context.Manager.GetAccessState();
-        if (current != BleAccessState.Available && current != BleAccessState.Unknown)
-            return current;
-
-        if (OperatingSystem.IsAndroidVersionAtLeast(31))
-        {
-            var perms = new List<string>();
-            if (advertise)
-                perms.Add(Permission.BluetoothAdvertise);
-
-            if (connect)
-                perms.Add(Permission.BluetoothConnect);
-            
-            
-            var result = await Platform.RequestPermissions(perms.ToArray());
-            if (!result.IsSuccess())
-                return BleAccessState.Denied;
-        }
-        return BleAccessState.Available;
-    }
-    
     public Task InitializeAsync(ILogger logger)
     {
         bluetoothManager = (BluetoothManager?)Android.App.Application.Context.GetSystemService(Context.BluetoothService);
         gattServerCallback = new GattServerCallback(logger);
         this.logger = logger;
-        
+
         logger.LogDebug("InitializeAsync Android");
         return Task.CompletedTask;
     }
@@ -132,39 +43,139 @@ public class AndroidGattServer : IGattServer, IAndroidLifecycle.IOnActivityReque
     {
         foreach (var bluetoothGattService in gattServer.Services)
         {
-           bluetoothGattService.Dispose();
+            bluetoothGattService.Dispose();
         }
+
         gattServer.Services.Clear();
         gattServer.ClearServices();
         gattServer.Dispose();
         return Task.CompletedTask;
     }
-    
-    public Task<bool> AddServiceAsync(UUID uuid)
-    {       
-        BluetoothGattService androidService = new BluetoothGattService(uuid, GattServiceType.Primary);
-        // Add characteristics to the service.
+
+    public Task<bool> AddServiceAsync(IBleService bleService)
+    {
+        BluetoothGattService androidService = new BluetoothGattService(UUID.FromString(bleService.ServiceUuid.ToString()), GattServiceType.Primary);
+        // Add characteristics to the service
+
+        foreach (var charact in bleService.Characteristics)
+        {
+            var properties = charact.Properties;
+            var characteristic = new BluetoothGattCharacteristic(
+                UUID.FromString(charact.CharacteristicUuid.ToString()),
+                ToGattProperty(properties),
+                ToGattPermission(properties));
+
+            if (androidService.Characteristics.FirstOrDefault(x => x.Uuid == characteristic.Uuid) is not null)
+            {
+                logger.LogWarning(LoggerScope.GATT_S.EventId(),
+                    "Service {S} has already a characteristic with UUID {U}",
+                    bleService.ServiceUuid.ToString(),
+                    charact.CharacteristicUuid.ToString());
+                continue;
+            }
+            
+            androidService.Characteristics.Add(characteristic);
+        }
+        
         if (gattServer is null || !gattServer.AddService(androidService))
         {
             return Task.FromResult(false);
         }
-        
+
         return Task.FromResult(true);
     }
 
-    public Task<bool> RemoveServiceAsync(UUID uuid)
+    private GattProperty ToGattProperty(BleCharacteristicProperties properties)
     {
-        var serviceToRemove = gattServer.Services?.FirstOrDefault(x => x.Uuid == uuid);
+        GattProperty result = GattProperty.Read;
+
+        if (properties.HasFlag(BleCharacteristicProperties.Broadcast))
+        {
+            result |= GattProperty.Broadcast;
+        }
+        if (properties.HasFlag(BleCharacteristicProperties.Read))
+        {
+            result |= GattProperty.Read;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.WriteWithoutResponse))
+        {
+            result |= GattProperty.WriteNoResponse;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.Write))
+        {
+            result |= GattProperty.Write;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.Indicate))
+        {
+            result |= GattProperty.Indicate;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.AuthenticatedSignedWrites))
+        {
+            result |= GattProperty.SignedWrite;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.ExtendedProperties))
+        {
+            result |= GattProperty.ExtendedProps;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.NotifyEncryptionRequired))
+        {
+            result |= GattProperty.Notify;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.IndicateEncryptionRequired))
+        {
+            result |= GattProperty.Indicate;
+        }
+        
+        
+        return result;
+    }
+    
+    private GattPermission ToGattPermission(BleCharacteristicProperties properties)
+    {
+        GattPermission result = GattPermission.Read;
+
+        if (properties.HasFlag(BleCharacteristicProperties.Read))
+        {
+            result |= GattPermission.Read;
+        }
+        if (properties.HasFlag(BleCharacteristicProperties.ReadEncrypted))
+        {
+            result |= GattPermission.ReadEncrypted;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.WriteWithoutResponse) || properties.HasFlag(BleCharacteristicProperties.Write))
+        {
+            result |= GattPermission.Write;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.AuthenticatedSignedWrites))
+        {
+            result |= GattPermission.WriteSigned;
+        }
+        
+        return result;
+    }
+    
+    public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
+    {
+        var serviceToRemove = gattServer?.Services?.FirstOrDefault(x => x.Uuid?.ToString() == bleServiceUuid.ToString());
         if (serviceToRemove == null)
         {
             return Task.FromResult(false);
         }
 
-        if (!gattServer.RemoveService(serviceToRemove))
+        if (gattServer is null || !gattServer.RemoveService(serviceToRemove))
         {
             return Task.FromResult(false);
         }
-        
+
         return Task.FromResult(true);
     }
 }

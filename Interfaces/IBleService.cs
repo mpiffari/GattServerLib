@@ -5,6 +5,6 @@ public interface IBleService
     string ServiceName { get; }
     Guid ServiceUuid { get; }
     IReadOnlyList<IBleCharacteristic> Characteristics { get; }
-    Task AddCharacteristicAsync(IBleCharacteristic service);
-    Task RemoveCharacteristicAsync(IBleCharacteristic service);
+    Task AddCharacteristicAsync(IBleCharacteristic characteristic);
+    Task RemoveCharacteristicAsync(IBleCharacteristic characteristic);
 }

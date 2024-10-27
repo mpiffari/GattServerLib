@@ -1,4 +1,5 @@
 using CoreBluetooth;
+using Foundation;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
 using GattServerLib.Support;
@@ -17,47 +18,6 @@ public class iOSGattServer : IGattServer
     private TaskCompletionSource<bool> OnStateUpdatedTcs = new();
     private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
-    
-    public BleAccessState AdvertisingAccessStatus => CBPeripheralManager.Authorization switch
-    {
-        CBManagerAuthorization.NotDetermined => BleAccessState.Unknown,
-        CBManagerAuthorization.Denied => BleAccessState.Denied,
-        //CBManagerAuthorization.Restricted => ToStatus(this.Manager.State),
-        CBManagerAuthorization.AllowedAlways => ToStatus(peripheralManager.State)
-    };
-    
-    // only one state on iOS/Mac
-    public BleAccessState GattAccessStatus => this.AdvertisingAccessStatus;
-    
-    public async Task<BleAccessState> RequestAccess(bool advertise = true, bool connect = true)
-    {
-        var status = ToStatus(peripheralManager.State);
-        if (status == BleAccessState.Unknown)
-        {
-            var tcs = new TaskCompletionSource<bool>();
-            var handler = new EventHandler((sender, args) =>
-            {
-                status = ToStatus(peripheralManager.State);
-                if (status != BleAccessState.Unknown)
-                    tcs.TrySetResult(true);
-            });
-            // this should not hang...
-            peripheralManager.StateUpdated += handler;
-            await tcs.Task.ConfigureAwait(false);
-            peripheralManager.StateUpdated -= handler;
-        }
-        return status;
-    }
-    
-    private static BleAccessState ToStatus(CBManagerState state) => state switch
-    {
-        CBManagerState.PoweredOff => BleAccessState.Disabled,
-        CBManagerState.Unauthorized => BleAccessState.Denied,
-        CBManagerState.Unsupported => BleAccessState.NotSupported,
-        CBManagerState.PoweredOn => BleAccessState.Available,
-        //  CBPeripheralManagerState.Resetting, Unknown
-        _ => BleAccessState.Unknown
-    };
     
     public Task InitializeAsync(ILogger logger)
     {
@@ -103,16 +63,106 @@ public class iOSGattServer : IGattServer
         return Task.FromResult<bool>(true);
     }
 
-    public Task<bool> AddServiceAsync(UUID uuid)
+    public Task<bool> AddServiceAsync(IBleService bleService)
     {
-        var iosService = new CBMutableService(CBUUID.FromString(uuid.ToString()), true);
-        // Add characteristics to the service.
+        var iosService = new CBMutableService(CBUUID.FromString(bleService.ServiceUuid.ToString()), true);
+        // Add characteristics to the service
+        
+        foreach (var charact in bleService.Characteristics)
+        {
+            var properties = charact.Properties;
+            iosService?.Characteristics?.Append(new CBMutableCharacteristic(
+                CBUUID.FromString(charact.CharacteristicUuid.ToString()),
+                ToGattProperty(properties),
+                null,
+                ToGattPermission(properties)));
+        }
+        
         peripheralManager.AddService(iosService);
         return Task.FromResult<bool>(true);
     }
-
-    public Task<bool> RemoveServiceAsync(UUID uuid)
+    
+    private CBCharacteristicProperties ToGattProperty(BleCharacteristicProperties properties)
     {
+        CBCharacteristicProperties result = CBCharacteristicProperties.Read;
+
+        if (properties.HasFlag(BleCharacteristicProperties.Broadcast))
+        {
+            result |= CBCharacteristicProperties.Broadcast;
+        }
+        if (properties.HasFlag(BleCharacteristicProperties.Read))
+        {
+            result |= CBCharacteristicProperties.Read;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.WriteWithoutResponse))
+        {
+            result |= CBCharacteristicProperties.WriteWithoutResponse;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.Write))
+        {
+            result |= CBCharacteristicProperties.Write;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.Indicate))
+        {
+            result |= CBCharacteristicProperties.Indicate;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.AuthenticatedSignedWrites))
+        {
+            result |= CBCharacteristicProperties.AuthenticatedSignedWrites;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.ExtendedProperties))
+        {
+            result |= CBCharacteristicProperties.ExtendedProperties;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.NotifyEncryptionRequired))
+        {
+            result |= CBCharacteristicProperties.Notify;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.IndicateEncryptionRequired))
+        {
+            result |= CBCharacteristicProperties.Indicate;
+        }
+        
+        
+        return result;
+    }
+    
+    private CBAttributePermissions ToGattPermission(BleCharacteristicProperties properties)
+    {
+        CBAttributePermissions result = CBAttributePermissions.Readable;
+
+        if (properties.HasFlag(BleCharacteristicProperties.Read))
+        {
+            result |= CBAttributePermissions.Readable;
+        }
+        if (properties.HasFlag(BleCharacteristicProperties.ReadEncrypted))
+        {
+            result |= CBAttributePermissions.ReadEncryptionRequired;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.WriteWithoutResponse) || properties.HasFlag(BleCharacteristicProperties.Write))
+        {
+            result |= CBAttributePermissions.Writeable;
+        }
+        
+        if (properties.HasFlag(BleCharacteristicProperties.AuthenticatedSignedWrites))
+        {
+            result |= CBAttributePermissions.WriteEncryptionRequired;
+        }
+        
+        return result;
+    }
+
+    public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
+    {
+        // TODO()
         return Task.FromResult<bool>(true);
     }
 }
