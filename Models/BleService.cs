@@ -6,7 +6,7 @@ public class BleService : IBleService
 {
     public string ServiceName { get; }
     public Guid ServiceUuid { get; }
-    public IReadOnlyList<IBleCharacteristic> Characteristics { get; }
+    public List<IBleCharacteristic> Characteristics { get; }
 
     public BleService(string serviceName, Guid serviceUuid)
     {
