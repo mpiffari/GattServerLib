@@ -21,7 +21,9 @@ public class AndroidGattServer : IGattServer
 
     private TaskCompletionSource<bool> OnAdvertisingStartedTcs = new();
     private TaskCompletionSource<bool> OnServiceAddedTcs = new();
-
+    
+    public Func<(string sUuid, string cUuid, int offset), Task<(bool, byte[])>>? onRead { get; set; }
+    
     public Task InitializeAsync(ILogger logger)
     {
         this.logger = logger;
@@ -33,9 +35,28 @@ public class AndroidGattServer : IGattServer
         gattAdvertiseCallback.OnStartSuccessEvent += OnAdvertisingStartedSuccess;
         gattAdvertiseCallback.OnStartFailureEvent += OnAdvertisingStartedFailure;
         gattServerCallback.OnServiceAddedEvent += OnServiceAdded;
+        gattServerCallback.OnCharacteristicReadRequestEvent += OnCharacteristicReadRequest;
         
         logger.LogDebug("InitializeAsync Android - completed");
         return Task.CompletedTask;
+    }
+
+    private async Task OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic characteristic)
+    {
+        var sUuid = characteristic.Service.Uuid.ToString();
+        var cUuid = characteristic.Uuid.ToString();
+        (bool isSuccess, byte[] data) res = await onRead?.Invoke((sUuid, cUuid, offset));
+        
+        if (res.isSuccess)
+        {
+            gattServer.SendResponse(device, requestId, GattStatus.Success, offset, res.data);
+            Console.WriteLine("Characteristic read response sent successfully.");
+        }
+        else
+        {
+            gattServer.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
+            logger.LogDebug(LoggerScope.GATT_S.EventId(), "Characteristic read response failed due to null value");
+        }
     }
 
     private void OnServiceAdded(GattStatus status, BluetoothGattService? service)
@@ -76,24 +97,20 @@ public class AndroidGattServer : IGattServer
         }
         
         var bluetoothAdapter = bluetoothManager?.Adapter;
-        // Set the Bluetooth adapter's device name
-        if (options.LocalName is not null)
-        {
-            bluetoothAdapter.SetName(options.LocalName);  // This sets the device name globally
-        }
-        
         var advertiser = bluetoothAdapter?.BluetoothLeAdvertiser;
-
         if (advertiser == null || !bluetoothAdapter.IsEnabled)
         {            
             logger.LogError(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - bluetoothAdapter not enabled");
             return false;
         }
         
-        var settings = new AdvertiseSettings.Builder()
+        /*var settings = new AdvertiseSettings.Builder()
             .SetAdvertiseMode(AdvertiseMode.LowLatency)
             .SetTxPowerLevel(AdvertiseTx.PowerHigh)
-            .SetDiscoverable(true)
+            .SetConnectable(true)
+            .Build();*/
+        var settings = new AdvertiseSettings.Builder()
+            .SetAdvertiseMode(AdvertiseMode.Balanced)!
             .SetConnectable(true)
             .Build();
 
@@ -105,6 +122,13 @@ public class AndroidGattServer : IGattServer
         advertiser.StartAdvertising(settings, data, gattAdvertiseCallback);
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - awaiting advertising completion source");
         var result = await OnAdvertisingStartedTcs.Task;
+        
+        // Set the Bluetooth adapter's device name
+        if (options.LocalName is not null)
+        {
+            bluetoothAdapter.SetName(options.LocalName);  // This sets the device name globally
+        }
+        
         return result;
     }
 
@@ -125,6 +149,7 @@ public class AndroidGattServer : IGattServer
 
     public async Task<bool> AddServiceAsync(IBleService bleService)
     {
+        OnServiceAddedTcs = new();
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "AddServiceAsync Android - service {S}", bleService.ServiceUuid.ToString());
         BluetoothGattService androidService = new BluetoothGattService(UUID.FromString(bleService.ServiceUuid.ToString()), GattServiceType.Primary);
         

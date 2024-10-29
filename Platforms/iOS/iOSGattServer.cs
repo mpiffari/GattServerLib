@@ -1,5 +1,6 @@
 using CoreBluetooth;
 using CoreFoundation;
+using Foundation;
 using GattServerLib.GattOptions;
 using GattServerLib.Interfaces;
 using GattServerLib.Support;
@@ -19,6 +20,10 @@ public class iOSGattServer : IGattServer
     private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
     
+    private List<CBService> nativeServices = new();
+
+    public Func<(string sUuid, string cUuid, int offset), Task<(bool, byte[])>>? onRead { get; set; }
+    
     public Task InitializeAsync(ILogger logger)
     {
         this.logger = logger;
@@ -28,9 +33,25 @@ public class iOSGattServer : IGattServer
         peripheralManagerDelegate.OnServiceAdded += (service, error) => { };
         peripheralManagerDelegate.OnStateUpdated += (sender, s) => { };
         peripheralManagerDelegate.OnWriteRequestsReceived += requests => { }; 
-        peripheralManagerDelegate.OnReadRequestReceived += request => { };
+        peripheralManagerDelegate.OnReadRequestReceived += async (peripheral, request) =>
+        {
+            var sUuid = request.Characteristic.Service.UUID.ToString();
+            var cUuid = request.Characteristic.UUID.ToString();
+            (bool isSuccess, byte[] data) res = await onRead?.Invoke((sUuid, cUuid, request.Offset.ToInt32()));
+
+            if (res.isSuccess)
+            {
+                request.Value = NSData.FromArray(res.data);
+                peripheral.RespondToRequest(request, CBATTError.ReadNotPermitted);
+            }
+            else
+            {
+                peripheral.RespondToRequest(request, CBATTError.ReadNotPermitted);
+            }
+        };
         
         peripheralManager = new CBPeripheralManager(peripheralManagerDelegate, DispatchQueue.MainQueue);
+        nativeServices.Clear();
         
         return Task.CompletedTask;
     }
@@ -90,6 +111,13 @@ public class iOSGattServer : IGattServer
         }
         
         peripheralManager.AddService(iosService);
+        
+        if (nativeServices is null || nativeServices.Count == 0)
+        {
+            nativeServices = new List<CBService>();
+        }
+        nativeServices.Add(iosService);
+        
         var result = await OnServiceAddedTcs.Task;
         return result;
     }
@@ -176,5 +204,22 @@ public class iOSGattServer : IGattServer
     {
         // TODO()
         return Task.FromResult<bool>(true);
+    }
+    
+    public Task<bool> RespondToReadRequestAsync(string serviceUuid, string characteristicUuid, byte[] value)
+    {
+        var sUuid = CBUUID.FromString(serviceUuid);
+        var cUuid = CBUUID.FromString(characteristicUuid);
+
+        var c = nativeServices.FirstOrDefault(x => x.UUID == sUuid)?.Characteristics?.FirstOrDefault(x => x.UUID == cUuid);
+        if (c is null)
+        {
+            return Task.FromResult(false);
+        }
+        else
+        {
+            c.Value = NSData.FromArray(value);
+            return Task.FromResult(true);
+        }
     }
 }

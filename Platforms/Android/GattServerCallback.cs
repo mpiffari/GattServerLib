@@ -10,7 +10,7 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
 {
     #region PeripheralManagerDelegate
     
-    public delegate void OnCharacteristicReadRequestDelegate(int requestId, int offset, BluetoothGattCharacteristic characteristic);
+    public delegate Task OnCharacteristicReadRequestDelegate(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic characteristic);
     public delegate void OnCharacteristicWriteRequestDelegate(int requestId, BluetoothGattCharacteristic characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value);
     public delegate void OnCharacteristicWriteExecuteDelegate(int requestId, bool execute);
     public delegate void OnServiceAddedDelegate(GattStatus status, BluetoothGattService? service);
@@ -28,8 +28,8 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
 
     public override void OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic? characteristic)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnCharacteristicReadRequest");
-        OnCharacteristicReadRequestEvent?.Invoke(requestId, offset, characteristic);
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnCharacteristicReadRequest - characteristic {C}", characteristic?.Uuid?.ToString());
+        OnCharacteristicReadRequestEvent?.Invoke(device, requestId, offset, characteristic);
     }
 
     public override void OnCharacteristicWriteRequest(BluetoothDevice? device, int requestId, BluetoothGattCharacteristic? characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value)

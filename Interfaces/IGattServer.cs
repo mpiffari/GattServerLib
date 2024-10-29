@@ -10,4 +10,6 @@ public interface IGattServer
     Task StopAdvertisingAsync();
     Task<bool> AddServiceAsync(IBleService bleService);
     Task<bool> RemoveServiceAsync(Guid bleServiceUuid);
+    
+    Func<(string sUuid, string cUuid, int offset), Task<(bool, byte[])>>? onRead { get; set; }
 }

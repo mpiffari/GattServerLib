@@ -14,14 +14,4 @@ public class BleCharacteristic : IBleCharacteristic
         CharateristicName = charateristicName;
         Properties = properties;
     }
-    
-    public Task RespondToReadRequestAsync(byte[] value)
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task RespondToWriteRequestAsync(bool success)
-    {
-        throw new NotImplementedException();
-    }
 }
