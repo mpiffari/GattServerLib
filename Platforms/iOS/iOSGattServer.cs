@@ -11,34 +11,61 @@ namespace GattServerLib;
 public class iOSGattServer : IGattServer
 {
     private CBPeripheralManager peripheralManager;
-    private iOSPeripheralManagerDelegate peripheralManagerDelegate;
+    private IOsPeripheralManagerDelegate peripheralManagerDelegate;
     private ILogger logger;
     
     private TaskCompletionSource<bool> OnAdvertisingStartedTcs = new();
     private TaskCompletionSource<bool> OnServiceAddedTcs = new();
-    private TaskCompletionSource<bool> OnStateUpdatedTcs = new();
-    private TaskCompletionSource<bool> OnWriteRequestsReceivedTcs = new();
-    private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
     
     private List<CBService> nativeServices = new();
     
     public Func<(string cUuid, int offset), (bool, byte[])>? OnRead { get; set; }
-    public Func<(string cUuid, int offset), Task<(bool, byte[])>>? OnReadAsync { get; set; }
+    
+    public Func<(string cUuid, byte[] valueWritten), (bool isSuccess, bool notificationNeeded, string notificationUuid)>? OnWrite { get; set; }
     
     public Task InitializeAsync(ILogger logger)
     {
         this.logger = logger;
         
-        peripheralManagerDelegate = new iOSPeripheralManagerDelegate(logger);
+        peripheralManagerDelegate = new IOsPeripheralManagerDelegate(logger);
         peripheralManagerDelegate.OnAdvertisingStarted += error => { };
         peripheralManagerDelegate.OnServiceAdded += (service, error) => { };
         peripheralManagerDelegate.OnStateUpdated += (sender, s) => { };
-        peripheralManagerDelegate.OnWriteRequestsReceived += requests => { }; 
-        peripheralManagerDelegate.OnReadRequestReceived += async (peripheral, request) =>
+        peripheralManagerDelegate.OnWriteRequestsReceived += (peripheral, request) =>
         {
+            if (OnWrite is null)
+            {
+                logger.LogError(LoggerScope.GATT_S.EventId(), "iOSGattServer - OnWriteRequestsReceived failed due null OnWrite Func");
+                peripheral.RespondToRequest(request, CBATTError.ReadNotPermitted);
+                return;
+            }
+            
             var cUuid = request.Characteristic.UUID.ToString();
-            (bool isSuccess, byte[] data) res = await OnReadAsync?.Invoke((cUuid, request.Offset.ToInt32()));
-
+            (bool isSuccess, bool notificationNeeded, string notificationUuid) res = OnWrite.Invoke((cUuid, request.Value.ToArray()));
+            
+            if (request.Characteristic.Properties == CBCharacteristicProperties.Write)
+            {
+                peripheral.RespondToRequest(request, res.isSuccess ? CBATTError.Success : CBATTError.WriteNotPermitted);
+                logger.LogDebug(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest response ack (isSuccess {S})", res.isSuccess);
+            }
+            
+            // TODO: sent notification
+            // var cNotifyUuid = CBUUID.FromString(res.notificationUuid);
+            // var c = nativeServices.FirstOrDefault(x => x.UUID == sUuid)?.Characteristics?.FirstOrDefault(x => x.UUID == cUuid);
+        };
+        
+        peripheralManagerDelegate.OnReadRequestReceived += (peripheral, request) =>
+        {
+            if (OnRead is null)
+            {
+                logger.LogError(LoggerScope.GATT_S.EventId(), "iOSGattServer - OnReadRequestReceived failed due null OnRead Func");
+                peripheral.RespondToRequest(request, CBATTError.ReadNotPermitted);
+                return;
+            }
+            
+            var cUuid = request.Characteristic.UUID.ToString();
+            (bool isSuccess, byte[] data) res = OnRead.Invoke((cUuid, request.Offset.ToInt32()));
+            
             if (res.isSuccess)
             {
                 request.Value = NSData.FromArray(res.data);
@@ -165,6 +192,11 @@ public class iOSGattServer : IGattServer
             result |= CBCharacteristicProperties.ExtendedProperties;
         }
         
+        if (properties.HasFlag(BleCharacteristicProperties.Notify))
+        {
+            result |= CBCharacteristicProperties.Notify;
+        }
+
         if (properties.HasFlag(BleCharacteristicProperties.NotifyEncryptionRequired))
         {
             result |= CBCharacteristicProperties.Notify;
@@ -204,7 +236,7 @@ public class iOSGattServer : IGattServer
         
         return result;
     }
-
+    
     public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
     {
         // TODO()
@@ -226,5 +258,10 @@ public class iOSGattServer : IGattServer
             c.Value = NSData.FromArray(value);
             return Task.FromResult(true);
         }
+    }
+
+    public Task<bool> SendNotification(string cUuid, byte[] value)
+    {
+        return Task.FromResult(true);
     }
 }

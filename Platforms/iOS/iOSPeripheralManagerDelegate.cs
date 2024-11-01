@@ -5,28 +5,28 @@ using Microsoft.Extensions.Logging;
 
 namespace GattServerLib;
 
-internal class iOSPeripheralManagerDelegate(ILogger logger) : CBPeripheralManagerDelegate
+internal class IOsPeripheralManagerDelegate(ILogger logger) : CBPeripheralManagerDelegate
 {
     #region PeripheralManagerDelegate
     
-    public delegate void OnAdvertisingStartedDelegate(NSError? error);
-    public delegate void OnServiceAddedDelegate(CBService service, NSError? error);
-    public delegate void OnWriteRequestsReceivedDelegate(CBATTRequest request);
-    public delegate void OnReadRequestReceivedDelegate(CBPeripheralManager peripheral, CBATTRequest request);
-    public delegate void OnSubscriptionReceivedDelegate(CBCentral central, CBCharacteristic characteristic);
-    public delegate void OnUnsubscriptionReceivedDelegate(CBCentral central, CBCharacteristic characteristic);
+    public delegate void AdvertisingStartedDelegate(NSError? error);
+    public delegate void ServiceAddedDelegate(CBService service, NSError? error);
+    public delegate void WriteRequestsReceivedDelegate(CBPeripheralManager peripheral, CBATTRequest request);
+    public delegate void ReadRequestReceivedDelegate(CBPeripheralManager peripheral, CBATTRequest request);
+    public delegate void SubscriptionReceivedDelegate(CBCentral central, CBCharacteristic characteristic);
+    public delegate void UnsubscriptionReceivedDelegate(CBCentral central, CBCharacteristic characteristic);
     
     #endregion
     
     #region PeripheralManagerDelegate events
 
-    public event OnAdvertisingStartedDelegate? OnAdvertisingStarted;
-    public event OnServiceAddedDelegate? OnServiceAdded;
+    public event AdvertisingStartedDelegate? OnAdvertisingStarted;
+    public event ServiceAddedDelegate? OnServiceAdded;
     public event EventHandler<string>? OnStateUpdated;
-    public event OnWriteRequestsReceivedDelegate? OnWriteRequestsReceived;
-    public event OnReadRequestReceivedDelegate? OnReadRequestReceived;
-    public event OnSubscriptionReceivedDelegate? OnSubscriptionReceived;
-    public event OnUnsubscriptionReceivedDelegate? OnUnsubscriptionReceived;
+    public event WriteRequestsReceivedDelegate? OnWriteRequestsReceived;
+    public event ReadRequestReceivedDelegate? OnReadRequestReceived;
+    public event SubscriptionReceivedDelegate? OnSubscriptionReceived;
+    public event UnsubscriptionReceivedDelegate? OnUnsubscriptionReceived;
     
     #endregion
     
@@ -50,46 +50,40 @@ internal class iOSPeripheralManagerDelegate(ILogger logger) : CBPeripheralManage
     public override void WriteRequestsReceived(CBPeripheralManager peripheral, CBATTRequest[] requests)
     {
         foreach (var request in requests)
-        {
+        {        
+            var deviceInfo = $"{request.Central.Description} (addr {request.Central.Identifier})";
             var characteristic = request.Characteristic;
             characteristic.Value = request.Value;
             peripheral.RespondToRequest(request, CBATTError.Success);
                 
-            logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - AWriteRequestsReceived iOS - charact {C} - request (#{R}) {V}",
+            logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - WriteRequestsReceived iOS - {I} charact {C} - request (#{R}) {V}",
+                deviceInfo,
                 characteristic.UUID.ToString(),
                 request.Value.Length,
                 request.Value.ToList().Select(x => x.ToString("X2")));
             
-            // Verify that the request matches a writable characteristic.
-            if (request.Characteristic.Properties.HasFlag(CBCharacteristicProperties.Write))
-            {
-                peripheral.RespondToRequest(request, CBATTError.Success);
-            }
-            else
-            {
-                // If the characteristic is not writable, respond with an error
-                peripheral.RespondToRequest(request, CBATTError.WriteNotPermitted);
-            }
-            
-            OnWriteRequestsReceived?.Invoke(request);
+            OnWriteRequestsReceived?.Invoke(peripheral, request);
         }
     }
     
     public override void ReadRequestReceived(CBPeripheralManager peripheral, CBATTRequest request)
     {
         var characteristic = request.Characteristic;
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - ReadRequestReceived iOS - characteristic {R}", characteristic.UUID.ToString());
+        var deviceInfo = $"{request.Central.Description} (addr {request.Central.Identifier})";
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - ReadRequestReceived iOS - {I} characteristic {R}", deviceInfo, characteristic.UUID.ToString());
         OnReadRequestReceived?.Invoke(peripheral, request);
     }
     
     public override void CharacteristicSubscribed(CBPeripheralManager peripheral, CBCentral central, CBCharacteristic characteristic)
     {        
+        var deviceInfo = $"{central.Description} (addr {central.Identifier})";
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - CharacteristicSubscribed iOS - central {C} charact {CC}", central.DebugDescription, characteristic.UUID.ToString());
         OnSubscriptionReceived?.Invoke(central, characteristic);
     }
        
     public override void CharacteristicUnsubscribed(CBPeripheralManager peripheral, CBCentral central, CBCharacteristic characteristic)
     {
+        var deviceInfo = $"{central.Description} (addr {central.Identifier})";
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - CharacteristicUnsubscribed iOS - central {C} charact {CC}", central.DebugDescription, characteristic.UUID.ToString());
         OnUnsubscriptionReceived?.Invoke(central, characteristic);
     }
