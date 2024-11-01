@@ -8,29 +8,10 @@ public class BleService : IBleService
     public Guid ServiceUuid { get; }
     public List<IBleCharacteristic> Characteristics { get; }
 
-    public BleService(string serviceName, Guid serviceUuid)
+    public BleService(string serviceName, Guid serviceUuid, List<IBleCharacteristic> characteristics)
     {
         ServiceName = serviceName;
         ServiceUuid = serviceUuid;
-        Characteristics = new List<IBleCharacteristic>();
-    }
-    
-    public Task AddCharacteristicAsync(IBleCharacteristic characteristic)
-    {
-        if (!Characteristics.Select(x => x.CharacteristicUuid).Contains(characteristic.CharacteristicUuid))
-        {
-            Characteristics.Append(characteristic);
-        }
-        return Task.CompletedTask;
-    }
-
-    public Task RemoveCharacteristicAsync(IBleCharacteristic characteristic)
-    {
-        if (Characteristics.Select(x => x.CharacteristicUuid).Contains(characteristic.CharacteristicUuid))
-        {
-            Characteristics.ToList().Remove(characteristic);
-        }
-
-        return Task.CompletedTask;
+        Characteristics = characteristics;
     }
 }

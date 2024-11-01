@@ -32,18 +32,18 @@ internal class iOSPeripheralManagerDelegate(ILogger logger) : CBPeripheralManage
     
     public override void AdvertisingStarted(CBPeripheralManager peripheral, NSError? error)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "AdvertisingStarted iOS - error {E}", error?.ToString());
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - AdvertisingStarted iOS - error {E}", error?.ToString());
         OnAdvertisingStarted?.Invoke(error);
     }
     public override void ServiceAdded(CBPeripheralManager peripheral, CBService service, NSError? error)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "ServiceAdded iOS - service {S} - error {E}", service.UUID.ToString(), error?.ToString());
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - ServiceAdded iOS - service {S} - error {E}", service.UUID.ToString(), error?.ToString());
         OnServiceAdded?.Invoke(service, error);
     }
     
     public override void StateUpdated(CBPeripheralManager peripheral)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StateUpdated iOS - state {P}", peripheral.State);
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - StateUpdated iOS - state {P}", peripheral.State);
         OnStateUpdated?.Invoke(this, "StateUpdated");
     }
     
@@ -55,7 +55,7 @@ internal class iOSPeripheralManagerDelegate(ILogger logger) : CBPeripheralManage
             characteristic.Value = request.Value;
             peripheral.RespondToRequest(request, CBATTError.Success);
                 
-            logger.LogDebug(LoggerScope.GATT_S.EventId(), "WriteRequestsReceived iOS - charact {C} - request (#{R}) {V}",
+            logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - AWriteRequestsReceived iOS - charact {C} - request (#{R}) {V}",
                 characteristic.UUID.ToString(),
                 request.Value.Length,
                 request.Value.ToList().Select(x => x.ToString("X2")));
@@ -78,19 +78,19 @@ internal class iOSPeripheralManagerDelegate(ILogger logger) : CBPeripheralManage
     public override void ReadRequestReceived(CBPeripheralManager peripheral, CBATTRequest request)
     {
         var characteristic = request.Characteristic;
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "ReadRequestReceived iOS - characteristic {R}", characteristic.UUID.ToString());
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - ReadRequestReceived iOS - characteristic {R}", characteristic.UUID.ToString());
         OnReadRequestReceived?.Invoke(peripheral, request);
     }
     
     public override void CharacteristicSubscribed(CBPeripheralManager peripheral, CBCentral central, CBCharacteristic characteristic)
     {        
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CharacteristicSubscribed iOS - ");
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - CharacteristicSubscribed iOS - central {C} charact {CC}", central.DebugDescription, characteristic.UUID.ToString());
         OnSubscriptionReceived?.Invoke(central, characteristic);
     }
        
     public override void CharacteristicUnsubscribed(CBPeripheralManager peripheral, CBCentral central, CBCharacteristic characteristic)
     {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CharacteristicUnsubscribed iOS - ");
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "CBPeripheralManagerDelegate - CharacteristicUnsubscribed iOS - central {C} charact {CC}", central.DebugDescription, characteristic.UUID.ToString());
         OnUnsubscriptionReceived?.Invoke(central, characteristic);
     }
        

@@ -11,5 +11,6 @@ public interface IGattServer
     Task<bool> AddServiceAsync(IBleService bleService);
     Task<bool> RemoveServiceAsync(Guid bleServiceUuid);
     
-    Func<(string sUuid, string cUuid, int offset), Task<(bool, byte[])>>? onRead { get; set; }
+    Func<(string cUuid, int offset), Task<(bool, byte[])>>? OnReadAsync { get; set; }
+    Func<(string cUuid, int offset), (bool, byte[])>? OnRead { get; set; }
 }

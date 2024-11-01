@@ -22,18 +22,19 @@ public class AndroidGattServer : IGattServer
     private TaskCompletionSource<bool> OnAdvertisingStartedTcs = new();
     private TaskCompletionSource<bool> OnServiceAddedTcs = new();
     
-    public Func<(string sUuid, string cUuid, int offset), Task<(bool, byte[])>>? onRead { get; set; }
+    public Func<(string cUuid, int offset), Task<(bool, byte[])>>? OnReadAsync { get; set; }
+    public Func<(string cUuid, int offset), (bool, byte[])>? OnRead { get; set; }
     
     public Task InitializeAsync(ILogger logger)
     {
         this.logger = logger;
         
         bluetoothManager = (BluetoothManager?)Android.App.Application.Context.GetSystemService(Context.BluetoothService);
-        gattServerCallback = new GattServerCallback(logger);
         gattAdvertiseCallback = new GattAdvertiseCallback(logger);
-        
         gattAdvertiseCallback.OnStartSuccessEvent += OnAdvertisingStartedSuccess;
         gattAdvertiseCallback.OnStartFailureEvent += OnAdvertisingStartedFailure;
+        
+        gattServerCallback = new GattServerCallback(logger);
         gattServerCallback.OnServiceAddedEvent += OnServiceAdded;
         gattServerCallback.OnCharacteristicReadRequestEvent += OnCharacteristicReadRequest;
         
@@ -41,21 +42,34 @@ public class AndroidGattServer : IGattServer
         return Task.CompletedTask;
     }
 
-    private async Task OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic characteristic)
+    private void OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic characteristic)
     {
-        var sUuid = characteristic.Service.Uuid.ToString();
+        if (gattServer is null)
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "Characteristic read response failed due null gatt server reference");
+            return;
+        }
+        
+        if (OnRead is null)
+        {
+            gattServer?.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
+            logger.LogError(LoggerScope.GATT_S.EventId(), "Characteristic read response failed due null OnRead Func");
+            return;
+        }
+        
         var cUuid = characteristic.Uuid.ToString();
-        (bool isSuccess, byte[] data) res = await onRead?.Invoke((sUuid, cUuid, offset));
+
+        (bool isSuccess, byte[] data) res = OnRead((cUuid, offset));
         
         if (res.isSuccess)
         {
             gattServer.SendResponse(device, requestId, GattStatus.Success, offset, res.data);
-            Console.WriteLine("Characteristic read response sent successfully.");
+            logger.LogDebug(LoggerScope.GATT_S.EventId(), "Characteristic read response sent successfully.");
         }
         else
         {
             gattServer.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
-            logger.LogDebug(LoggerScope.GATT_S.EventId(), "Characteristic read response failed due to null value");
+            logger.LogError(LoggerScope.GATT_S.EventId(), "Characteristic read response failed due to null value");
         }
     }
 

@@ -21,8 +21,9 @@ public class iOSGattServer : IGattServer
     private TaskCompletionSource<bool> OnReadRequestReceivedTcs = new();
     
     private List<CBService> nativeServices = new();
-
-    public Func<(string sUuid, string cUuid, int offset), Task<(bool, byte[])>>? onRead { get; set; }
+    
+    public Func<(string cUuid, int offset), (bool, byte[])>? OnRead { get; set; }
+    public Func<(string cUuid, int offset), Task<(bool, byte[])>>? OnReadAsync { get; set; }
     
     public Task InitializeAsync(ILogger logger)
     {
@@ -35,9 +36,8 @@ public class iOSGattServer : IGattServer
         peripheralManagerDelegate.OnWriteRequestsReceived += requests => { }; 
         peripheralManagerDelegate.OnReadRequestReceived += async (peripheral, request) =>
         {
-            var sUuid = request.Characteristic.Service.UUID.ToString();
             var cUuid = request.Characteristic.UUID.ToString();
-            (bool isSuccess, byte[] data) res = await onRead?.Invoke((sUuid, cUuid, request.Offset.ToInt32()));
+            (bool isSuccess, byte[] data) res = await OnReadAsync?.Invoke((cUuid, request.Offset.ToInt32()));
 
             if (res.isSuccess)
             {
@@ -108,6 +108,11 @@ public class iOSGattServer : IGattServer
                 ToGattProperty(properties),
                 null,
                 ToGattPermission(properties)));
+        }
+
+        if (iosService is null)
+        {
+            return false;
         }
         
         peripheralManager.AddService(iosService);
@@ -203,7 +208,7 @@ public class iOSGattServer : IGattServer
     public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
     {
         // TODO()
-        return Task.FromResult<bool>(true);
+        return Task.FromResult(true);
     }
     
     public Task<bool> RespondToReadRequestAsync(string serviceUuid, string characteristicUuid, byte[] value)
