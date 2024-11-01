@@ -22,10 +22,16 @@ public class AndroidGattServer : IGattServer
     private TaskCompletionSource<bool> OnAdvertisingStartedTcs = new();
     private TaskCompletionSource<bool> OnServiceAddedTcs = new();
 
+    /// <inheritdoc />
+    public Func<string, bool>? OnConnectionStateChanged { get; set; }
+    
+    /// <inheritdoc />
     public Func<(string cUuid, int offset), (bool, byte[])>? OnRead { get; set; }
     
+    /// <inheritdoc />
     public Func<(string cUuid, byte[] valueWritten), (bool isSuccess, bool notificationNeeded, string notificationUuid)>? OnWrite { get; set; }
     
+    /// <inheritdoc />
     public Task InitializeAsync(ILogger log)
     {
         logger = log;
@@ -37,148 +43,15 @@ public class AndroidGattServer : IGattServer
         
         gattServerCallback = new GattServerCallback(log);
         gattServerCallback.OnServiceAddedEvent += OnServiceAdded;
+        gattServerCallback.OnConnectionStateChangeEvent += OnConnectionStateChange;
         gattServerCallback.OnCharacteristicReadRequestEvent += OnCharacteristicReadRequest;
         gattServerCallback.OnCharacteristicWriteRequestEvent += OnCharacteristicWriteRequest;
         
         log.LogDebug("InitializeAsync Android - completed");
         return Task.CompletedTask;
     }
-
-    private void OnCharacteristicWriteRequest(BluetoothDevice? device, int requestId, BluetoothGattCharacteristic? characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value)
-    {
-        if (gattServer is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null gatt server reference");
-            return;
-        }
-        
-        if (device is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null BluetoothDevice");
-            gattServer.SendResponse(null, requestId, GattStatus.Failure, offset, value);
-            return;
-        }
-        
-        if (characteristic is null || characteristic.Uuid is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null BluetoothGattCharacteristic");
-            gattServer.SendResponse(device, requestId, GattStatus.Failure, offset, value);
-            return;
-        }
-        
-        if (OnWrite is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null OnWrite Func");
-            gattServer?.SendResponse(device, requestId, GattStatus.Failure, offset, null);
-            return;
-        }
-        
-        var cUuid = characteristic.Uuid.ToString();
-        (bool isSuccess, bool notifcationNeeded, string notificationUuid) res = OnWrite((cUuid, value));
-        
-        if (responseNeeded)
-        {
-            gattServer.SendResponse(device, requestId, res.isSuccess ? GattStatus.Success : GattStatus.Failure, offset, value);
-            logger.LogDebug(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest response ack (isSuccess {S})", res.isSuccess);
-        }
-
-        if (res.notifcationNeeded)
-        {
-            var services = gattServer?.Services?.FirstOrDefault(s => s.Characteristics.Any(c => c.Uuid.ToString() == cUuid));
-            var notifyCharact = services?.Characteristics.FirstOrDefault(c => c.Uuid.ToString() == res.notificationUuid);
-
-            if (notifyCharact is not null && (notifyCharact?.Properties.HasFlag(GattProperty.Notify) ?? false))
-            {            
-                logger.LogDebug(LoggerScope.GATT_S.EventId(), "AndroidGattServer - send notification");
-                notifyCharact.SetValue(value);
-                try
-                {
-                    gattServer.NotifyCharacteristicChanged(device, notifyCharact, false);
-                }
-                catch (Exception e)
-                {
-                    var a = 10;
-                }
-            }
-            else
-            {
-                logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - send notification error");
-            }
-        }
-        
-        // TODO: store device request reference, in order to sent notifications ASYNC (despite presence or not of any write request from client side)
-        // Sent notify
-    }
-
-    private void OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic? characteristic)
-    {
-        if (gattServer is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null gatt server reference");
-            return;
-        }
-        
-        if (device is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null BluetoothDevice");
-            gattServer?.SendResponse(null, requestId, GattStatus.InvalidAttributeLength, offset, null);
-            return;
-        }
-        
-        if (characteristic is null || characteristic.Uuid is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null BluetoothGattCharacteristic");
-            gattServer?.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
-            return;
-        }
-        
-        if (OnRead is null)
-        {
-            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null OnRead Func");
-            gattServer?.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
-            return;
-        }
-        
-        var cUuid = characteristic.Uuid.ToString();
-        (bool isSuccess, byte[] data) res = OnRead((cUuid, offset));
-        
-        if (res.isSuccess)
-        {
-            gattServer.SendResponse(device, requestId, GattStatus.Success, offset, res.data);
-            logger.LogDebug(LoggerScope.GATT_S.EventId(), "Characteristic read response sent successfully");
-        }
-        else
-        {
-            gattServer.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
-            logger.LogError(LoggerScope.GATT_S.EventId(), "Characteristic read response failed due to null value");
-        }
-    }
-
-    private void OnServiceAdded(GattStatus status, BluetoothGattService? service)
-    {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnServiceAdded Android (service {U}) - status {S}", service.Uuid, status.ToString());
-        if (status != GattStatus.Success)
-        {
-            OnServiceAddedTcs.SetResult(false);
-        }
-        else
-        {
-            OnServiceAddedTcs.SetResult(true);
-        }
-    }
-
-    private void OnAdvertisingStartedSuccess(AdvertiseSettings settingsineffect)
-    {
-        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - settingsineffect {S}", settingsineffect.ToString());
-        OnAdvertisingStartedTcs.SetResult(true);
-    }
-
-    private void OnAdvertisingStartedFailure(AdvertiseFailure errorcode)
-    {            
-        logger.LogError(LoggerScope.GATT_S.EventId(), "OnAdvertisingStartedFailure - errorcode {E}", errorcode.ToString());
-        OnAdvertisingStartedTcs.SetResult(false);
-    }
-
+    
+    /// <inheritdoc />
     public async Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null)
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android");
@@ -193,19 +66,15 @@ public class AndroidGattServer : IGattServer
         
         var bluetoothAdapter = bluetoothManager?.Adapter;
         var advertiser = bluetoothAdapter?.BluetoothLeAdvertiser;
-        if (advertiser == null || !bluetoothAdapter.IsEnabled)
+        if (advertiser == null || bluetoothAdapter is null || !bluetoothAdapter.IsEnabled)
         {            
             logger.LogError(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - bluetoothAdapter not enabled");
             return false;
         }
         
-        /*var settings = new AdvertiseSettings.Builder()
-            .SetAdvertiseMode(AdvertiseMode.LowLatency)
-            .SetTxPowerLevel(AdvertiseTx.PowerHigh)
-            .SetConnectable(true)
-            .Build();*/
         var settings = new AdvertiseSettings.Builder()
             .SetAdvertiseMode(AdvertiseMode.Balanced)!
+            .SetTxPowerLevel(AdvertiseTx.PowerHigh)
             .SetConnectable(true)
             .Build();
 
@@ -227,6 +96,7 @@ public class AndroidGattServer : IGattServer
         return result;
     }
 
+    /// <inheritdoc />
     public Task StopAdvertisingAsync()
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "StopAdvertisingAsync Android");
@@ -242,6 +112,7 @@ public class AndroidGattServer : IGattServer
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public async Task<bool> AddServiceAsync(IBleService bleService)
     {
         OnServiceAddedTcs = new();
@@ -271,7 +142,29 @@ public class AndroidGattServer : IGattServer
                 charact.CharacteristicUuid.ToString(),
                 bleService.ServiceUuid.ToString());
             var res = androidService.AddCharacteristic(characteristic);
-            // TODO: handle res
+            if (!res)
+            {
+                logger.LogError(LoggerScope.GATT_S.EventId(), "Error on AddCharacteristic - operation result gives error");
+                return false;
+            }
+
+            // CCCD need to be handled in a better way
+            if (false && charact.Properties.HasFlag(BleCharacteristicProperties.Notify))
+            {
+                // Add the CCCD to the characteristic
+                var cccd = new BluetoothGattDescriptor(
+                    UUID.FromString("00002902-0000-1000-8000-00805f9b34fb"),
+                    GattDescriptorPermission.Read | GattDescriptorPermission.Write
+                );
+
+                // Add the descriptor to the characteristic
+                res = characteristic.AddDescriptor(cccd);
+                if (!res)
+                {
+                    logger.LogError(LoggerScope.GATT_S.EventId(), "Error on AddDescriptor - operation result gives error");
+                    return false;
+                }
+            }
         }
         
         if (gattServer is null)
@@ -289,7 +182,48 @@ public class AndroidGattServer : IGattServer
         var result = await OnServiceAddedTcs.Task;
         return result;
     }
+    
+    /// <inheritdoc />
+    public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
+    {
+        var serviceToRemove = gattServer?.Services?.FirstOrDefault(x => x.Uuid?.ToString() == bleServiceUuid.ToString());
+        if (serviceToRemove == null)
+        {
+            return Task.FromResult(false);
+        }
 
+        if (gattServer is null || !gattServer.RemoveService(serviceToRemove))
+        {
+            return Task.FromResult(false);
+        }
+
+        return Task.FromResult(true);
+    }
+    
+    /// <inheritdoc />
+    public Task<bool> SendNotification(string cUuid, byte[] value)
+    {
+        // TODO
+        /*var services = gattServer?.Services?.FirstOrDefault(s => s.Characteristics.Any(c => c.Uuid.ToString() == cUuid));
+        var characteristic = services?.Characteristics.FirstOrDefault(c => c.Uuid.ToString() == cUuid);
+
+        if (characteristic is null)
+        {
+            return false;
+        }
+
+        var setValueResult = characteristic.SetValue(value);
+        if (!setValueResult)
+        {
+            return false;
+        }
+
+        gattServer.NotifyCharacteristicChanged(device, characteristic, true);*/
+        return Task.FromResult(true);
+    }
+    
+    #region Private
+    
     private GattProperty ToGattProperty(BleCharacteristicProperties properties)
     {
         GattProperty result = 0;
@@ -373,40 +307,149 @@ public class AndroidGattServer : IGattServer
         return result;
     }
     
-    public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
+    private void OnCharacteristicWriteRequest(BluetoothDevice? device, int requestId, BluetoothGattCharacteristic? characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value)
     {
-        var serviceToRemove = gattServer?.Services?.FirstOrDefault(x => x.Uuid?.ToString() == bleServiceUuid.ToString());
-        if (serviceToRemove == null)
+        if (gattServer is null)
         {
-            return Task.FromResult(false);
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null gatt server reference");
+            return;
+        }
+        
+        if (device is null)
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null BluetoothDevice");
+            gattServer.SendResponse(null, requestId, GattStatus.Failure, offset, value);
+            return;
+        }
+        
+        if (characteristic is null || characteristic.Uuid is null)
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null BluetoothGattCharacteristic");
+            gattServer.SendResponse(device, requestId, GattStatus.Failure, offset, value);
+            return;
+        }
+        
+        if (OnWrite is null)
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest failed due null OnWrite Func");
+            gattServer?.SendResponse(device, requestId, GattStatus.Failure, offset, null);
+            return;
+        }
+        
+        var cUuid = characteristic.Uuid.ToString();
+        (bool isSuccess, bool notifcationNeeded, string notificationUuid) res = OnWrite((cUuid, value));
+        
+        if (responseNeeded)
+        {
+            gattServer.SendResponse(device, requestId, res.isSuccess ? GattStatus.Success : GattStatus.Failure, offset, value);
+            logger.LogDebug(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest response ack (isSuccess {S})", res.isSuccess);
         }
 
-        if (gattServer is null || !gattServer.RemoveService(serviceToRemove))
+        if (res.notifcationNeeded)
         {
-            return Task.FromResult(false);
-        }
+            var services = gattServer?.Services?.FirstOrDefault(s => s.Characteristics.Any(c => c.Uuid.ToString() == cUuid));
+            var notifyCharact = services?.Characteristics.FirstOrDefault(c => c.Uuid.ToString() == res.notificationUuid);
 
-        return Task.FromResult(true);
+            if (notifyCharact is not null && (notifyCharact?.Properties.HasFlag(GattProperty.Notify) ?? false))
+            {            
+                logger.LogDebug(LoggerScope.GATT_S.EventId(), "AndroidGattServer - send notification");
+                notifyCharact.SetValue(value);
+                try
+                {
+                    gattServer.NotifyCharacteristicChanged(device, notifyCharact, false);
+                }
+                catch (Exception e)
+                {
+                    var a = 10;
+                }
+            }
+            else
+            {
+                logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - send notification error");
+            }
+        }
+        
+        // TODO: store device request reference, in order to sent notifications ASYNC (despite presence or not of any write request from client side)
+        // Sent notify
+    }
+
+    private void OnConnectionStateChange(BluetoothDevice? device, ProfileState status, ProfileState newstate)
+    {
+        if (OnConnectionStateChanged is not null)
+        {
+            var description = $"{device?.Name ?? "-"} (address {device?.Address ?? "-"}) state: {status} newState {newstate}";
+            OnConnectionStateChanged(description);
+        }
     }
     
-    public Task<bool> SendNotification(string cUuid, byte[] value)
+    private void OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic? characteristic)
     {
-        // TODO
-        /*var services = gattServer?.Services?.FirstOrDefault(s => s.Characteristics.Any(c => c.Uuid.ToString() == cUuid));
-        var characteristic = services?.Characteristics.FirstOrDefault(c => c.Uuid.ToString() == cUuid);
-
-        if (characteristic is null)
+        if (gattServer is null)
         {
-            return false;
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null gatt server reference");
+            return;
         }
-
-        var setValueResult = characteristic.SetValue(value);
-        if (!setValueResult)
+        
+        if (device is null)
         {
-            return false;
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null BluetoothDevice");
+            gattServer?.SendResponse(null, requestId, GattStatus.InvalidAttributeLength, offset, null);
+            return;
         }
-
-        gattServer.NotifyCharacteristicChanged(device, characteristic, true);*/
-        return Task.FromResult(true);
+        
+        if (characteristic is null || characteristic.Uuid is null)
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null BluetoothGattCharacteristic");
+            gattServer?.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
+            return;
+        }
+        
+        if (OnRead is null)
+        {
+            logger.LogError(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicReadRequest failed due null OnRead Func");
+            gattServer?.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
+            return;
+        }
+        
+        var cUuid = characteristic.Uuid.ToString();
+        (bool isSuccess, byte[] data) res = OnRead((cUuid, offset));
+        
+        if (res.isSuccess)
+        {
+            gattServer.SendResponse(device, requestId, GattStatus.Success, offset, res.data);
+            logger.LogDebug(LoggerScope.GATT_S.EventId(), "Characteristic read response sent successfully");
+        }
+        else
+        {
+            gattServer.SendResponse(device, requestId, GattStatus.InvalidAttributeLength, offset, null);
+            logger.LogError(LoggerScope.GATT_S.EventId(), "Characteristic read response failed due to null value");
+        }
     }
+
+    private void OnServiceAdded(GattStatus status, BluetoothGattService? service)
+    {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "OnServiceAdded Android (service {U}) - status {S}", service.Uuid, status.ToString());
+        if (status != GattStatus.Success)
+        {
+            OnServiceAddedTcs.SetResult(false);
+        }
+        else
+        {
+            OnServiceAddedTcs.SetResult(true);
+        }
+    }
+
+    private void OnAdvertisingStartedSuccess(AdvertiseSettings? settingsineffect)
+    {
+        logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync Android - settingsineffect {S}", settingsineffect?.ToString());
+        OnAdvertisingStartedTcs.SetResult(true);
+    }
+
+    private void OnAdvertisingStartedFailure(AdvertiseFailure errorcode)
+    {            
+        logger.LogError(LoggerScope.GATT_S.EventId(), "OnAdvertisingStartedFailure - errorcode {E}", errorcode.ToString());
+        OnAdvertisingStartedTcs.SetResult(false);
+    }
+    
+    #endregion
 }

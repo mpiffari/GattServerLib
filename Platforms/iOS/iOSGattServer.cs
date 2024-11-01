@@ -19,34 +19,46 @@ public class iOSGattServer : IGattServer
     
     private List<CBService> nativeServices = new();
     
+    /// <inheritdoc />
+    public Func<string, bool>? OnConnectionStateChanged { get; set; }
+    
+    /// <inheritdoc />
     public Func<(string cUuid, int offset), (bool, byte[])>? OnRead { get; set; }
     
+    /// <inheritdoc />
     public Func<(string cUuid, byte[] valueWritten), (bool isSuccess, bool notificationNeeded, string notificationUuid)>? OnWrite { get; set; }
     
-    public Task InitializeAsync(ILogger logger)
+    /// <inheritdoc />
+    public Task InitializeAsync(ILogger log)
     {
-        this.logger = logger;
+        logger = log;
         
-        peripheralManagerDelegate = new IOsPeripheralManagerDelegate(logger);
+        peripheralManagerDelegate = new IOsPeripheralManagerDelegate(log);
         peripheralManagerDelegate.OnAdvertisingStarted += error => { };
         peripheralManagerDelegate.OnServiceAdded += (service, error) => { };
-        peripheralManagerDelegate.OnStateUpdated += (sender, s) => { };
+        peripheralManagerDelegate.OnStateUpdated += peripheral =>
+        {
+            if (OnConnectionStateChanged is not null)
+            {
+                OnConnectionStateChanged(peripheral.State.ToString());
+            }
+        };
         peripheralManagerDelegate.OnWriteRequestsReceived += (peripheral, request) =>
         {
             if (OnWrite is null)
             {
-                logger.LogError(LoggerScope.GATT_S.EventId(), "iOSGattServer - OnWriteRequestsReceived failed due null OnWrite Func");
+                log.LogError(LoggerScope.GATT_S.EventId(), "iOSGattServer - OnWriteRequestsReceived failed due null OnWrite Func");
                 peripheral.RespondToRequest(request, CBATTError.ReadNotPermitted);
                 return;
             }
             
             var cUuid = request.Characteristic.UUID.ToString();
-            (bool isSuccess, bool notificationNeeded, string notificationUuid) res = OnWrite.Invoke((cUuid, request.Value.ToArray()));
+            (bool isSuccess, bool notificationNeeded, string notificationUuid) res = OnWrite((cUuid, request.Value.ToArray()));
             
             if (request.Characteristic.Properties == CBCharacteristicProperties.Write)
             {
                 peripheral.RespondToRequest(request, res.isSuccess ? CBATTError.Success : CBATTError.WriteNotPermitted);
-                logger.LogDebug(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest response ack (isSuccess {S})", res.isSuccess);
+                log.LogDebug(LoggerScope.GATT_S.EventId(), "AndroidGattServer - OnCharacteristicWriteRequest response ack (isSuccess {S})", res.isSuccess);
             }
             
             // TODO: sent notification
@@ -58,13 +70,13 @@ public class iOSGattServer : IGattServer
         {
             if (OnRead is null)
             {
-                logger.LogError(LoggerScope.GATT_S.EventId(), "iOSGattServer - OnReadRequestReceived failed due null OnRead Func");
+                log.LogError(LoggerScope.GATT_S.EventId(), "iOSGattServer - OnReadRequestReceived failed due null OnRead Func");
                 peripheral.RespondToRequest(request, CBATTError.ReadNotPermitted);
                 return;
             }
             
             var cUuid = request.Characteristic.UUID.ToString();
-            (bool isSuccess, byte[] data) res = OnRead.Invoke((cUuid, request.Offset.ToInt32()));
+            (bool isSuccess, byte[] data) res = OnRead((cUuid, request.Offset.ToInt32()));
             
             if (res.isSuccess)
             {
@@ -83,6 +95,7 @@ public class iOSGattServer : IGattServer
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public async Task<bool> StartAdvertisingAsync(BleAdvOptions? options = null)
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "StartAdvertisingAsync iOS");
@@ -113,6 +126,7 @@ public class iOSGattServer : IGattServer
         return result;
     }
 
+    /// <inheritdoc />
     public Task StopAdvertisingAsync()
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "StopAdvertisingAsync iOS");
@@ -120,6 +134,7 @@ public class iOSGattServer : IGattServer
         return Task.FromResult<bool>(true);
     }
 
+    /// <inheritdoc />
     public async Task<bool> AddServiceAsync(IBleService bleService)
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "AddServiceAsync iOS");
@@ -153,6 +168,21 @@ public class iOSGattServer : IGattServer
         var result = await OnServiceAddedTcs.Task;
         return result;
     }
+    
+    /// <inheritdoc />
+    public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
+    {
+        // TODO()
+        return Task.FromResult(true);
+    }
+    
+    /// <inheritdoc />
+    public Task<bool> SendNotification(string cUuid, byte[] value)
+    {
+        return Task.FromResult(true);
+    }
+    
+    #region Private functions
     
     private CBCharacteristicProperties ToGattProperty(BleCharacteristicProperties properties)
     {
@@ -237,31 +267,5 @@ public class iOSGattServer : IGattServer
         return result;
     }
     
-    public Task<bool> RemoveServiceAsync(Guid bleServiceUuid)
-    {
-        // TODO()
-        return Task.FromResult(true);
-    }
-    
-    public Task<bool> RespondToReadRequestAsync(string serviceUuid, string characteristicUuid, byte[] value)
-    {
-        var sUuid = CBUUID.FromString(serviceUuid);
-        var cUuid = CBUUID.FromString(characteristicUuid);
-
-        var c = nativeServices.FirstOrDefault(x => x.UUID == sUuid)?.Characteristics?.FirstOrDefault(x => x.UUID == cUuid);
-        if (c is null)
-        {
-            return Task.FromResult(false);
-        }
-        else
-        {
-            c.Value = NSData.FromArray(value);
-            return Task.FromResult(true);
-        }
-    }
-
-    public Task<bool> SendNotification(string cUuid, byte[] value)
-    {
-        return Task.FromResult(true);
-    }
+    #endregion
 }

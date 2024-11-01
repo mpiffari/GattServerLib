@@ -14,6 +14,7 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
     public delegate void CharacteristicWriteRequestDelegate(BluetoothDevice? device, int requestId, BluetoothGattCharacteristic? characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value);
     public delegate void CharacteristicWriteExecuteDelegate(int requestId, bool execute);
     public delegate void ServiceAddedDelegate(GattStatus status, BluetoothGattService? service);
+    public delegate void ConnectionStateChangeDelegate(BluetoothDevice? device, ProfileState status, ProfileState newState);
     
     #endregion
     
@@ -23,9 +24,11 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
     public event CharacteristicWriteRequestDelegate? OnCharacteristicWriteRequestEvent;
     public event CharacteristicWriteExecuteDelegate? OnCharacteristicWriteExecuteEvent;
     public event ServiceAddedDelegate? OnServiceAddedEvent;
+    public event ConnectionStateChangeDelegate? OnConnectionStateChangeEvent;
     
     #endregion
 
+    /// <inheritdoc />
     public override void OnCharacteristicReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattCharacteristic? characteristic)
     {
         var deviceInfo = $"device {device?.Name ?? "NA"} (addr {device?.Address ?? "NA"})";
@@ -33,6 +36,7 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
         OnCharacteristicReadRequestEvent?.Invoke(device, requestId, offset, characteristic);
     }
 
+    /// <inheritdoc />
     public override void OnCharacteristicWriteRequest(BluetoothDevice? device, int requestId, BluetoothGattCharacteristic? characteristic, bool preparedWrite, bool responseNeeded, int offset, byte[] value)
     {
         var valueWritten = BitConverter.ToString(value);
@@ -41,6 +45,7 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
         OnCharacteristicWriteRequestEvent?.Invoke(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value);
     }
     
+    /// <inheritdoc />
     public override void OnExecuteWrite(BluetoothDevice? device, int requestId, bool execute)
     {
         var deviceInfo = $"device {device?.Name ?? "NA"} (addr {device?.Address ?? "NA"})";
@@ -48,45 +53,53 @@ internal class GattServerCallback(ILogger logger) : BluetoothGattServerCallback
         OnCharacteristicWriteExecuteEvent?.Invoke(requestId, execute);
     }
     
+    /// <inheritdoc />
     public override void OnNotificationSent(BluetoothDevice? device, [GeneratedEnum] GattStatus status)
     {
         var deviceInfo = $"device {device?.Name ?? "NA"} (addr {device?.Address ?? "NA"})";
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnNotificationSent {I} status {S}", deviceInfo, status.ToString());
     }
     
+    /// <inheritdoc />
     public override void OnServiceAdded([GeneratedEnum] GattStatus status, BluetoothGattService? service)
     {
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnServiceAdded status {G} service {S}", status.ToString(), service.Uuid.ToString());
         OnServiceAddedEvent?.Invoke(status, service);
     }
     
+    /// <inheritdoc />
     public override void OnConnectionStateChange(BluetoothDevice? device, [GeneratedEnum] ProfileState status, [GeneratedEnum] ProfileState newState)
     {
         var deviceInfo = $"device {device?.Name ?? "NA"} (addr {device?.Address ?? "NA"})";
         logger.LogDebug(LoggerScope.GATT_S.EventId(), "BluetoothGattServerCallback - OnConnectionStateChange {I} status {S} newState {N}", deviceInfo, status.ToString(), newState.ToString());
+        OnConnectionStateChangeEvent?.Invoke(device, status, newState);
     }
     
+    /// <inheritdoc />
     public override void OnDescriptorReadRequest(BluetoothDevice? device, int requestId, int offset, BluetoothGattDescriptor? descriptor)
     {
         // TODO: handle delegate
     }
 
-
+    /// <inheritdoc />
     public override void OnDescriptorWriteRequest(BluetoothDevice? device, int requestId, BluetoothGattDescriptor? descriptor, bool preparedWrite, bool responseNeeded, int offset, byte[]? value)
     {
         // TODO: handle delegate
     }
 
+    /// <inheritdoc />
     public override void OnMtuChanged(BluetoothDevice? device, int mtu)
     {
         // TODO: handle delegate
     }
 
+    /// <inheritdoc />
     public override void OnPhyRead(BluetoothDevice? device, [GeneratedEnum] ScanSettingsPhy txPhy, [GeneratedEnum] ScanSettingsPhy rxPhy, [GeneratedEnum] GattStatus status)
     {
         // TODO: handle delegate
     }
 
+    /// <inheritdoc />
     public override void OnPhyUpdate(BluetoothDevice? device, [GeneratedEnum] ScanSettingsPhy txPhy, [GeneratedEnum] ScanSettingsPhy rxPhy, [GeneratedEnum] GattStatus status)
     {
         // TODO: handle delegate
