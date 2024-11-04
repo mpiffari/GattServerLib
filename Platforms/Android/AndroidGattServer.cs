@@ -356,6 +356,7 @@ public class AndroidGattServer : IGattServer
                 notifyCharact.SetValue(value);
                 try
                 {
+                    // TODO: use tcs with notifcation sent callback
                     gattServer.NotifyCharacteristicChanged(device, notifyCharact, false);
                 }
                 catch (Exception e)
